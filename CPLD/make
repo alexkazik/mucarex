@@ -1,0 +1,2 @@
+#!/bin/sh
+ssh 172.17.2.75 "source /opt/Xilinx/14.7/ISE_DS/settings64.sh; cd /media/sf_Develop/Vectrex/mucarex.git/CPLD/ ; make $@"

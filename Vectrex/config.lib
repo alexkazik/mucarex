@@ -1,0 +1,129 @@
+	;
+	; Copyright (c) 2014 ALeX Kazik
+	; All rights reserved.
+	;
+	; Redistribution and use in source and binary forms, with or without
+	; modification, are permitted provided that the following conditions are met:
+	;
+	; * Redistributions of source code must retain the above copyright notice, this
+	;   list of conditions and the following disclaimer.
+	;
+	; * Redistributions in binary form must reproduce the above copyright notice,
+	;   this list of conditions and the following disclaimer in the documentation
+	;   and/or other materials provided with the distribution.
+	;
+	; * Neither the names MuCaREX, p1x3l.net nor the names of its
+	;   contributors may be used to endorse or promote products derived from
+	;   this software without specific prior written permission.
+	;
+	; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	;
+
+	section config_lib
+	public F_read_settings
+	public F_write_settings
+	public F_read_config
+	public F_write_config
+
+	assume dpr:nothing
+
+	;
+	; SYSTEM
+	;
+
+	;
+	; read settings
+	;
+
+F_read_settings:
+	; call load data
+	ldab MDS_FUNC_LOAD, MDS_TYPE_CONFIG
+	ldx # 3
+	ldy # v_settings_game_id
+	ldu # v_settings
+	jsr [MDS_ADDR_DISPATCHER]
+
+	; check: something loaded
+	bcs set_default_settings ; nothing loaded
+
+	; check: size 2
+	cmpd # 3
+	bne set_default_settings
+
+	rts
+
+set_default_settings:
+	ldab 0, 1 ; bank + startup = slow
+	std v_settings
+	sta v_settings_3linemode
+	rts
+
+	;
+	; write config
+	;
+
+F_write_settings:
+	; call store data
+	ldab MDS_FUNC_STORE, MDS_TYPE_CONFIG
+	ldx # 3
+	ldy # v_settings_game_id
+	ldu # v_settings
+	jmp [MDS_ADDR_DISPATCHER]
+
+	;
+	; GAME
+	;
+
+	;
+	; read config
+	;
+
+F_read_config:
+	; call load data
+	ldab MDS_FUNC_LOAD, MDS_TYPE_GAME_CONFIG
+	ldx # 2
+	ldy # v_game_id
+	ldu # v_config
+	jsr [MDS_ADDR_DISPATCHER]
+
+	; check: something loaded
+	bcs set_default_config ; nothing loaded
+
+	; check: size 2
+	cmpd # 2
+	bne set_default_config
+	rts
+
+set_default_config:
+	ldab 0, 0 ; enable highscore + startup = default
+	std v_config
+	rts
+
+	;
+	; write config
+	;
+
+F_write_config:
+	; call store data
+	ldab MDS_FUNC_STORE, MDS_TYPE_GAME_CONFIG
+	ldx # 2
+	ldy # v_game_id
+	ldu v_config
+	beq +
+	ldu # v_config
+	jmp [MDS_ADDR_DISPATCHER]
+/
+	; config = default -> remove it (when not found defaults will be used)
+	ldab MDS_FUNC_DELETE, MDS_TYPE_GAME_CONFIG
+	jmp [MDS_ADDR_DISPATCHER]
+
+	endsection

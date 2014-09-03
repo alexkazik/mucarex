@@ -1,0 +1,354 @@
+	;
+	; Copyright (c) 2014 ALeX Kazik
+	; All rights reserved.
+	;
+	; Redistribution and use in source and binary forms, with or without
+	; modification, are permitted provided that the following conditions are met:
+	;
+	; * Redistributions of source code must retain the above copyright notice, this
+	;   list of conditions and the following disclaimer.
+	;
+	; * Redistributions in binary form must reproduce the above copyright notice,
+	;   this list of conditions and the following disclaimer in the documentation
+	;   and/or other materials provided with the distribution.
+	;
+	; * Neither the names MuCaREX, p1x3l.net nor the names of its
+	;   contributors may be used to endorse or promote products derived from
+	;   this software without specific prior written permission.
+	;
+	; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	;
+
+	;
+	; START!
+	;
+
+	cpu 6809
+
+	org $0000
+	assume dpr:nothing
+
+	include "utils.inc"
+	include "vectrex.inc"
+	include "mds.inc"
+	include "mucarex.inc"
+
+	section mds_updater
+
+	;
+	; rom header
+	;
+
+	byt "g GCE 2014", $80
+	adr d_music
+	byt $f8, $50, $20, -$56
+	byt "MDS UPDATER", $80
+	byt $f8, $50, $00, $08
+	byt "BY ALX", $80, $00
+
+start:
+
+	;
+	; set configuration
+	;
+
+	sta MUCAREX_SET | MCR_SET_MODE0_BOOTUP | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_ID | MCR_SET_MASTER
+
+	;
+	; verify configuration
+	;
+
+	ldb # 7
+	ldx # MUCAREX_READ + MCR_READ_MODE_B0
+/
+	asl b, x ; the read+shift pushes d7 into carry, the write has no effect
+	rola
+	decb
+	bpl -
+	cmpa # MCR_SET_MODE0_BOOTUP | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_ID | MCR_SET_MASTER
+	beq +
+	; this is not the expected configuration -> do a reset in order to fix it
+	reset
+/
+
+	;
+	; copy mds & program into ram
+	;
+
+	ldx # reloc_updater_start
+	ldu # updater
+/
+	ldd , x++
+	std , u++
+	cmpx # reloc_updater_end
+	blo -
+
+	ldx # reloc_mds_start
+	ldu # MDS_ADDR_HEAD
+/
+	ldd , x++
+	std , u++
+	cmpx # reloc_mds_end
+	blo -
+
+	jmp updater
+
+d_music:
+	adr $fee8
+	adr $feb6
+	byt $0, $80
+	byt $0, $80
+
+	;
+	;
+	; UPDATER!
+	;
+	;
+
+reloc_updater_start:
+	phase $c880
+updater:
+
+	; init joystick
+	ldab $01, $03
+	std V_Joy_Mux+0
+	ldab $00, $00
+	std V_Joy_Mux+2
+
+	; init new mds
+	clra ; short for lda # MDS_FUNC_INIT
+	jsr [MDS_ADDR_DISPATCHER]
+	; get status
+	lda # MDS_FUNC_STATUS
+	jsr [MDS_ADDR_DISPATCHER]
+
+	; save status
+	stu v_status
+	; store used bytes number
+	ldd 2, x
+	ldu # v_used_old_num
+	jsr bin2ascii
+	; get new version
+	ldd MDS_ADDR_VERSION
+	ldu # v_version_new_num
+	jsr bin2ascii
+
+
+	;
+	; search for MDS in ROM
+	;
+
+	; switch to correct mode(32k page)+bank+page
+	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+	sta MUCAREX_BANK | 0 ; bank 0
+	sta MUCAREX_PAGE | 30 ; page 30 - first half of last sector of hirom
+
+	; check header
+	ldx # MDS_ADDR_HEAD ; our header
+	ldu # MDS_ADDR_HEAD - MDS_ADDR_HEAD ; header in rom
+	ldb # MDS_ADDR_VERSION - MDS_ADDR_HEAD
+/
+	lda , x+
+	cmpa , u+
+	bne mismatch ; mismatch in header
+	decb
+	bne -
+
+	; check checksum
+	ldx MDS_ADDR_FIRST_DATA_IN_ROM - MDS_ADDR_HEAD ; size from rom -> ptr behind last word (in rom)
+	ldd # $0000
+/
+	addd , --x
+	cmpx # $0000
+	bne -
+	addd # $0000 ; same effect as "cmpd # $0000" but shorter+faster
+	bne mismatch ; checksum is not zero
+
+	inc v_found_mds
+
+	; get old version
+	ldd MDS_ADDR_VERSION - MDS_ADDR_HEAD
+	ldu # v_version_old_num
+	jsr bin2ascii
+
+
+mismatch:
+
+	;
+	; display
+	;
+
+main:
+	BIOS_Wait_Recal
+	BIOS_Intensity_5F
+
+	BIOS_Joy_Digital
+	lda V_Joy_1_Y
+	ora v_found_mds
+	sta v_use_old
+
+	ldu # text_new
+	ldab $50, -$70
+	BIOS_Print_Str_d
+
+	ldu v_status
+	ldab $40, -$70
+	BIOS_Print_Str_d
+
+	ldu # text_version_new
+	ldab $30, -$70
+	BIOS_Print_Str_d
+
+	ldu # text_old
+	ldab $10, -$70
+	BIOS_Print_Str_d
+
+	ldu # text_do1
+	ldab -$30, -$70
+	BIOS_Print_Str_d
+
+	ldu # text_do2
+	ldab -$40, -$70
+	BIOS_Print_Str_d
+
+	lda v_found_mds
+	bne no_old
+has_old:
+
+	ldu # text_version_old
+	ldab $00, -$70
+	BIOS_Print_Str_d
+
+	ldu # text_used_old
+	ldab -$10, -$70
+	BIOS_Print_Str_d
+
+	bra end_old
+no_old:
+
+	ldu # text_no_old
+	ldab $00, -$70
+	BIOS_Print_Str_d
+
+end_old:
+	lda v_use_old
+	bne no_old2
+has_old2:
+
+	ldu # text_do_found3
+	ldab -$50, -$70
+	BIOS_Print_Str_d
+
+	bra check_button
+no_old2:
+
+	ldu # text_do_clear3
+	ldab -$50, -$70
+	BIOS_Print_Str_d
+
+check_button:
+	BIOS_Read_Btns
+	tsta
+	lbeq main
+
+	;
+	; install software!
+	;
+
+	lda # MDS_FUNC_REORG_CLEAN
+	tst v_use_old
+	bne +
+	lda # MDS_FUNC_REORG_FORCE
+/
+	jsr [MDS_ADDR_DISPATCHER]
+
+main_done:
+	BIOS_Wait_Recal
+	BIOS_Intensity_5F
+
+	ldu # text_done
+	ldab $00, -$70
+	BIOS_Print_Str_d
+
+	BIOS_Read_Btns
+	tsta
+	beq main_done
+
+	reset
+
+	;
+	; libs
+	;
+
+UTILS_NO_BIN2HEX = 1
+	include "utils.lib"
+
+	;
+	; texts
+	;
+
+text_new:
+	byt "= NEW SOFTWARE =", $ff
+
+text_version_new:
+v_version_new_num = * + 9
+	byt "VERSION: -----", $ff
+
+
+text_old:
+	byt "= OLD SOFTWARE =", $ff
+
+text_version_old:
+v_version_old_num = * + 9
+	byt "VERSION: -----", $ff
+
+text_used_old:
+v_used_old_num = * + 6
+	byt "USED: ----- BYTES", $ff
+
+text_no_old:
+	byt "NO OLD SOFTW. FOUND", $ff
+
+text_do1:
+	byt "= PRESS BUTTON =", $ff
+text_do2:
+	byt "TO INSTALL SOFTW.,", $ff
+text_do_found3:
+	byt "ALL DATA IS KEPT", $ff
+
+text_do_clear3:
+	byt "ERASING ALL DATA", $ff
+
+text_done:
+	byt "DONE. PRESS BUTTON", $ff
+
+	;
+	; variables
+	;
+
+v_status:
+	adr $ffff
+
+v_found_mds: ; $00 = HAVE OLD! otherwise not
+	byt $ff
+
+v_use_old: ; $00 = use OLD! otherwise CLEAN UP
+	byt $00
+
+	dephase
+reloc_updater_end:
+
+	if reloc_updater_end >= ($cbea - 80)
+		error "the reloaced code takes to many ram"
+	endif
+
+	endsection

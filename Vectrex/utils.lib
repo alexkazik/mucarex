@@ -1,0 +1,167 @@
+	;
+	; Copyright (c) 2014 ALeX Kazik
+	; All rights reserved.
+	;
+	; Redistribution and use in source and binary forms, with or without
+	; modification, are permitted provided that the following conditions are met:
+	;
+	; * Redistributions of source code must retain the above copyright notice, this
+	;   list of conditions and the following disclaimer.
+	;
+	; * Redistributions in binary form must reproduce the above copyright notice,
+	;   this list of conditions and the following disclaimer in the documentation
+	;   and/or other materials provided with the distribution.
+	;
+	; * Neither the names MuCaREX, p1x3l.net nor the names of its
+	;   contributors may be used to endorse or promote products derived from
+	;   this software without specific prior written permission.
+	;
+	; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	;
+
+	section utils_lib
+
+	assume dpr:nothing
+
+	;
+	; bin2ascii
+	;
+	public bin2ascii
+
+	ifndef UTILS_BIN2ASCII_SPACE
+UTILS_BIN2ASCII_SPACE = ' '
+	endif
+
+	; in:
+	; D = binary value
+	; U = dest. number
+	; out:
+	; U = dest. number (kept)
+	; A,B destroyed
+	; X,Y kept
+
+bin2ascii:
+	; store regs
+	pshs x, y
+
+	; clear number
+	ldx # $0000
+	stx 0, u
+	stx 1, u
+	stx 3, u
+
+	; convert
+	ldx # tab
+main:
+	lsra
+	rorb
+	bcc skip_calc
+
+	tfr d, y
+	ldb # 4
+	; orcc c ; set carry - is set (see bcc above)
+add:
+	lda b, u
+	sbca b, x
+	cmpa # 10
+	blo no_overflow
+	suba # 10
+no_overflow:
+	sta b, u
+	decb
+	bpl add
+	tfr y, d
+
+skip_calc:
+	leax 5, x
+	; cmpx # tab+16*5 -- run over all 16 bit
+	addd # $0000 ; (same as cmpd # $0000 but a byte shorter and faster) -- run until no bits are left. i.e. 1-16 runs depending on the input
+	bne main
+
+	; replace leading zeroes with space
+	ldab UTILS_BIN2ASCII_SPACE, 0
+/
+	tst b, u
+	bne +
+	sta b, u
+	incb
+	cmpb # 4
+	bne -
+/
+
+	; convert others to ascii
+/
+	lda b, u
+	adda # '0'
+	sta b, u
+	incb
+	cmpb # 5
+	bne -
+
+	; restore regs + do rts
+	puls x, y, pc
+
+tab:
+	byt -1, -1, -1,  -1, -2
+	byt -1, -1, -1,  -1, -3
+	byt -1, -1, -1,  -1, -5
+	byt -1, -1, -1,  -1, -9
+	byt -1, -1, -1,  -2, -7
+	byt -1, -1, -1,  -4, -3
+	byt -1, -1, -1,  -7, -5
+	byt -1, -1, -2,  -3, -9
+	byt -1, -1, -3,  -6, -7
+	byt -1, -1, -6,  -2, -3
+	byt -1, -2, -1,  -3, -5
+	byt -1, -3, -1,  -5, -9
+	byt -1, -5, -1, -10, -7
+	byt -1, -9, -2, -10, -3
+	byt -2, -7, -4,  -9, -5
+	byt -4, -3, -8,  -7, -9
+
+	;
+	; bin2hex
+	;
+
+	ifndef UTILS_NO_BIN2HEX
+	public bin2hex
+
+	; in:
+	;   a = digit
+	;   u = dst
+	; out:
+	;   u = dst+2
+	; trashed
+	;   a
+bin2hex:
+	pshs a
+	lsra
+	lsra
+	lsra
+	lsra
+	bsr bin2hex_sub
+	puls a
+	anda # $0f
+bin2hex_sub:
+	adda # $30
+	cmpa # $3a
+	blo +
+	adda # $41-$3a
+/
+	sta , u+
+	rts
+
+	endif
+
+	assume dpr:nothing
+
+	endsection

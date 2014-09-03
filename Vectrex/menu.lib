@@ -1,0 +1,479 @@
+	;
+	; Copyright (c) 2014 ALeX Kazik
+	; All rights reserved.
+	;
+	; Redistribution and use in source and binary forms, with or without
+	; modification, are permitted provided that the following conditions are met:
+	;
+	; * Redistributions of source code must retain the above copyright notice, this
+	;   list of conditions and the following disclaimer.
+	;
+	; * Redistributions in binary form must reproduce the above copyright notice,
+	;   this list of conditions and the following disclaimer in the documentation
+	;   and/or other materials provided with the distribution.
+	;
+	; * Neither the names MuCaREX, p1x3l.net nor the names of its
+	;   contributors may be used to endorse or promote products derived from
+	;   this software without specific prior written permission.
+	;
+	; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	;
+
+	section menu_lib
+	public f_menu
+
+	assume dpr:nothing
+
+c_font_height	= 120
+
+c_line_0	= round(( 10000-(c_font_height*MDIR_SCALE_HEAD)/2 ) / 126)
+c_line_0a	= round(( 10000-(c_font_height*MDIR_SCALE_HEAD)*0.4 ) / 127) ; other scaling than the text lines
+c_line_1	= round((  2000-(c_font_height*MDIR_SCALE_BODY)/2 ) / 126)
+c_line_2	= round((  0000-(c_font_height*MDIR_SCALE_BODY)/2 ) / 126)
+c_line_3	= round(( -2000-(c_font_height*MDIR_SCALE_BODY)/2 ) / 126)
+c_line_4	= round(( -4000-(c_font_height*MDIR_SCALE_BODY)/2 ) / 126)
+c_line_5	= round(( -6000-(c_font_height*MDIR_SCALE_BODY)/2 ) / 126)
+c_line_diff = round(2000 / 127)
+
+c_vector_scale = 20
+
+c_intensity_active = $5f
+c_intensity_inactive = $3f
+c_intensity_arrow = $3f
+
+
+f_menu:
+	;
+	; display the menu
+	;
+	; IN:
+	;   A = 3linemode
+	; OUT:
+	;   A = button press
+	;   Y = entry pointer
+
+	sta v_use_3linemode
+
+	;
+	; main routine
+	;
+
+main_loop:
+
+	;
+	; Recalibrate
+	;
+
+	Set_DPR_kill_B $d0
+	BIOS_Recalibrate
+
+	;
+	; category line + arrows
+	;
+
+	; from now on: Y = v_ptr_cat
+	ldy v_ptr_cat
+
+	; head scale factor
+	lda # MDIR_SCALE_HEAD
+	sta v_string_scale_factor
+
+	; draw cat. name (all lines)
+	leau MDIR_CAT_NAME, y
+cat_loop:
+	BIOS_Reset0Ref
+	BIOS_Intensity c_intensity_active
+	lda # c_line_0
+	ldb , u+
+	FUNC_draw_string
+	ldb , -u
+	bne cat_loop
+
+	; body scale factor
+	lda # MDIR_SCALE_BODY
+	sta v_string_scale_factor
+
+	; draw left arrow?
+	lda MDIR_CAT_FLAGS, y ; flags
+	if MDIR_FLAG_FIRST = $80
+		bmi + ; skip if first
+	else
+		bita # MDIR_FLAG_FIRST
+		bne + ; skip if first
+	endif
+	BIOS_Reset0Ref
+	BIOS_Intensity c_intensity_arrow
+	lda # $7f
+	sta VIA_t1_cnt_lo
+	ldab c_line_0a, -120
+	BIOS_Moveto_d
+	ldx # d_vector_left
+	ldab 2, c_vector_scale
+	BIOS_Draw_VL_ab
+/
+
+	; draw right arrow?
+	lda MDIR_CAT_FLAGS, y ; flags
+	bita # MDIR_FLAG_LAST
+	bne + ; skip if last
+	BIOS_Reset0Ref
+	BIOS_Intensity c_intensity_arrow
+	lda # $7f
+	sta VIA_t1_cnt_lo
+	ldab c_line_0a, 120
+	BIOS_Moveto_d
+	ldx # d_vector_right
+	ldab 2, c_vector_scale
+	BIOS_Draw_VL_ab
+/
+
+	;
+	; entries
+	;
+
+	; from now on: Y = v_ent_cat (read fitst entry if ptr is zero)
+	ldd MDIR_CAT_ENT_PTR, y
+	ldy v_ptr_ent
+	bne +
+	std v_ptr_ent
+	tfr d, y
+/
+
+	;
+	; the selected line
+	;
+
+	; draw third line
+	BIOS_Reset0Ref
+	BIOS_Intensity c_intensity_active
+	lda # c_line_3
+	ldb MDIR_ENT_NAME, y
+	leau MDIR_ENT_NAME+1, y
+	FUNC_draw_string
+
+	lda v_use_3linemode
+	beq f_5linemode
+
+	;
+	; 3 lines: upper entry + arrow
+	;
+
+f_3linemode:
+
+	if c_intensity_inactive == c_intensity_arrow
+	BIOS_Intensity c_intensity_inactive
+	endif
+
+	; check for first|second entry
+	lda MDIR_ENT_LENGTH, y ; flags
+	bita # MDIR_FLAG_FIRST | MDIR_FLAG_SECOND
+	bne +
+
+	; draw up arrow
+	BIOS_Reset0Ref
+	if c_intensity_inactive <> c_intensity_arrow
+	BIOS_Intensity c_intensity_arrow
+	endif
+	lda # 32-c_line_diff
+	sta VIA_t1_cnt_lo
+	ldab $7f, 0
+	BIOS_Moveto_d
+	ldx # d_vector_up
+	ldab 2, c_vector_scale
+	BIOS_Draw_VL_ab
+
+/
+	; check for first entry
+	lda MDIR_ENT_LENGTH, y ; flags
+	if MDIR_FLAG_FIRST = $80
+		bmi + ; skip if first
+	else
+		bita # MDIR_FLAG_FIRST
+		bne + ; skip if first
+	endif
+
+	; draw second line (top line in 3line mode)
+	BIOS_Reset0Ref
+	if c_intensity_inactive <> c_intensity_arrow
+	BIOS_Intensity c_intensity_inactive
+	endif
+	lda # c_line_2
+	ldb MDIR_ENT_NAME-MDIR_ENT_LENGTH, y
+	leau MDIR_ENT_NAME+1-MDIR_ENT_LENGTH, y
+	FUNC_draw_string
+
+
+	;
+	; 3 lines: lower entry + arrow
+	;
+
+	; check for last|second last entry
+	lda MDIR_ENT_LENGTH, y ; flags
+	bita # MDIR_FLAG_LAST | MDIR_FLAG_SECLAST
+	bne +
+
+	; draw down arrow
+	BIOS_Reset0Ref
+	if c_intensity_inactive <> c_intensity_arrow
+	BIOS_Intensity c_intensity_arrow
+	endif
+	lda # 74-c_line_diff
+	sta VIA_t1_cnt_lo
+	ldab -$7f, 0
+	BIOS_Moveto_d
+	ldx # d_vector_down
+	ldab 2, c_vector_scale
+	BIOS_Draw_VL_ab
+/
+
+	; check for last entry
+	lda MDIR_ENT_LENGTH, y ; flags
+	bita # MDIR_FLAG_LAST
+	bne + ; skip if last
+
+	; draw fourth line (bottom line in 3line mode)
+	BIOS_Reset0Ref
+	if c_intensity_inactive <> c_intensity_arrow
+	BIOS_Intensity c_intensity_inactive
+	endif
+	lda # c_line_4
+	ldb MDIR_ENT_NAME+MDIR_ENT_LENGTH, y
+	leau MDIR_ENT_NAME+1+MDIR_ENT_LENGTH, y
+	FUNC_draw_string
+
+	lbra f_input
+
+	;
+	; 5 lines: upper two entries + arrow
+	;
+
+f_5linemode:
+
+	if c_intensity_inactive == c_intensity_arrow
+	BIOS_Intensity c_intensity_inactive
+	endif
+
+	; check for first|second entry
+	lda MDIR_ENT_FLAGS, y ; flags
+	bita # MDIR_FLAG_FIRST | MDIR_FLAG_SECOND
+	bne +
+	; check for third entry (is the previous one the second)
+	lda -MDIR_ENT_LENGTH + MDIR_ENT_FLAGS, y
+	bita # MDIR_FLAG_SECOND
+	bne +
+
+	; draw up arrow
+	BIOS_Reset0Ref
+	if c_intensity_inactive <> c_intensity_arrow
+	BIOS_Intensity c_intensity_arrow
+	endif
+	lda # 32
+	sta VIA_t1_cnt_lo
+	ldab $7f, 0
+	BIOS_Moveto_d
+	ldx # d_vector_up
+	ldab 2, c_vector_scale
+	BIOS_Draw_VL_ab
+
+/
+	; check for first entry
+	lda MDIR_ENT_FLAGS, y ; flags
+	if MDIR_FLAG_FIRST = $80
+		bmi + ; skip if first
+	else
+		bita # MDIR_FLAG_FIRST
+		bne + ; skip if first
+	endif
+
+	; draw second line
+	BIOS_Reset0Ref
+	if c_intensity_inactive <> c_intensity_arrow
+	BIOS_Intensity c_intensity_inactive
+	endif
+	lda # c_line_2
+	ldb MDIR_ENT_NAME-MDIR_ENT_LENGTH, y
+	leau MDIR_ENT_NAME+1-MDIR_ENT_LENGTH, y
+	FUNC_draw_string
+
+	; check for second entry
+	lda MDIR_ENT_FLAGS, y ; flags
+	bita # MDIR_FLAG_SECOND
+	bne + ; skip if first
+
+	; draw first line
+	BIOS_Reset0Ref
+	lda # c_line_1
+	ldb MDIR_ENT_NAME-2*MDIR_ENT_LENGTH, y
+	leau MDIR_ENT_NAME+1-2*MDIR_ENT_LENGTH, y
+	FUNC_draw_string
+/
+
+	;
+	; 5 lines: lower two entries + arrow
+	;
+
+
+	; check for last|second last entry
+	lda MDIR_ENT_FLAGS, y ; flags
+	bita # MDIR_FLAG_LAST | MDIR_FLAG_SECLAST
+	bne +
+	; check for third last entry (is the next one the second last)
+	lda MDIR_ENT_LENGTH + MDIR_ENT_FLAGS, y
+	bita # MDIR_FLAG_SECLAST
+	bne +
+
+	; draw down arrow
+	BIOS_Reset0Ref
+	if c_intensity_inactive <> c_intensity_arrow
+	BIOS_Intensity c_intensity_arrow
+	endif
+	lda # 74
+	sta VIA_t1_cnt_lo
+	ldab -$7f, 0
+	BIOS_Moveto_d
+	ldx # d_vector_down
+	ldab 2, c_vector_scale
+	BIOS_Draw_VL_ab
+/
+
+	; check for last entry
+	lda MDIR_ENT_FLAGS, y ; flags
+	bita # MDIR_FLAG_LAST
+	bne + ; skip if last
+
+	; draw fourth line
+	BIOS_Reset0Ref
+	if c_intensity_inactive <> c_intensity_arrow
+	BIOS_Intensity c_intensity_inactive
+	endif
+	lda # c_line_4
+	ldb MDIR_ENT_NAME+MDIR_ENT_LENGTH, y
+	leau MDIR_ENT_NAME+1+MDIR_ENT_LENGTH, y
+	FUNC_draw_string
+
+	; check for second last entry
+	lda MDIR_ENT_FLAGS, y ; flags
+	bita # MDIR_FLAG_SECLAST
+	bne + ; skip if last
+
+	; draw fifth line
+	BIOS_Reset0Ref
+	lda # c_line_5
+	ldb MDIR_ENT_NAME+2*MDIR_ENT_LENGTH, y
+	leau MDIR_ENT_NAME+1+2*MDIR_ENT_LENGTH, y
+	FUNC_draw_string
+/
+
+	;
+	; input
+	;
+
+f_input:
+	BIOS_Read_Btns
+	tsta
+	beq +
+
+	; any button pressed
+	rts
+
+	; care about delay
+/
+	lda v_input_delay
+	lbne main_loop
+
+	; joy movement
+	; from now on: Y = v_ptr_cat
+	ldy v_ptr_cat
+	; horizontal
+	BIOS_Joy_Digital
+	lda V_Joy_1_X
+	beq no_horiz
+	bmi left
+
+	; right
+right:
+	lda MDIR_CAT_FLAGS, y ; flags
+	bita # MDIR_FLAG_LAST
+	lbne main_loop
+	leay MDIR_CAT_LENGTH, y
+	bra go_new_cat
+
+	; left
+left:
+	lda MDIR_CAT_FLAGS, y ; flags
+	if MDIR_FLAG_FIRST = $80
+		lbmi main_loop
+	else
+		bita # MDIR_FLAG_FIRST
+		lbne main_loop
+	endif
+	leay -MDIR_CAT_LENGTH, y
+	bra go_new_cat
+
+
+no_horiz:
+	; from now on: Y = v_ptr_ent
+	ldy v_ptr_ent
+	lda V_Joy_1_Y
+	; vertical
+	lbeq main_loop ; no input -> next loop
+	bmi down
+
+	; up
+up:
+	lda MDIR_ENT_FLAGS, y ; flags
+	if MDIR_FLAG_FIRST = $80
+		lbmi main_loop
+	else
+		bita # MDIR_FLAG_FIRST
+		lbne main_loop
+	endif
+	tfr Y, D
+	subd # MDIR_ENT_LENGTH
+	std v_ptr_ent
+	bra go_new_ent
+
+	; down
+down:
+	lda MDIR_ENT_FLAGS, y ; flags
+	bita # MDIR_FLAG_LAST
+	lbne main_loop
+	tfr Y, D
+	addd # MDIR_ENT_LENGTH
+	std v_ptr_ent
+	bra go_new_ent
+
+	; go_new_cat + new_cat; Y must hold the pointer to cat
+go_new_cat:
+	sty v_ptr_cat
+	clra
+	clrb
+	std v_ptr_ent
+go_new_ent:
+	lda # 25
+	sta v_input_delay
+	jmp main_loop
+
+
+d_vector_left:
+	byt 60, 40, -120, 0, 60, -40
+d_vector_right:
+	byt 60, -40, -120, 0, 60, 40
+d_vector_up:
+	byt -40, 60, 0, -120, 40, 60
+d_vector_down:
+	byt 40, 60, 0, -120, -40, 60
+
+
+	assume dpr:nothing
+
+	endsection

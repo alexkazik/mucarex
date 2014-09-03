@@ -1,0 +1,125 @@
+	;
+	; Copyright (c) 2014 ALeX Kazik
+	; All rights reserved.
+	;
+	; Redistribution and use in source and binary forms, with or without
+	; modification, are permitted provided that the following conditions are met:
+	;
+	; * Redistributions of source code must retain the above copyright notice, this
+	;   list of conditions and the following disclaimer.
+	;
+	; * Redistributions in binary form must reproduce the above copyright notice,
+	;   this list of conditions and the following disclaimer in the documentation
+	;   and/or other materials provided with the distribution.
+	;
+	; * Neither the names MuCaREX, p1x3l.net nor the names of its
+	;   contributors may be used to endorse or promote products derived from
+	;   this software without specific prior written permission.
+	;
+	; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	;
+
+	section mds_loader_lib
+	public mds_loader_reloc_start
+	public mds_loader_reloc_dst
+	public mds_loader_reloc_end
+
+	assume dpr:nothing
+
+	;
+	; find data storage
+	;
+
+mds_loader_reloc_start:
+	phase MDS_ADDR_DISPATCHER
+mds_loader_reloc_dst:
+	
+	; head (only the needed bytes)
+	adr dispatcher
+
+	; the dispatcher
+dispatcher:
+
+	; check for init function
+	tsta
+	beq init
+	; check for status
+	deca
+	beq status
+
+	; an unknown function: set carry for failure
+	orcc c
+
+	rts
+
+	;
+	; search for the real mds
+	;
+init:
+	; switch to correct mode(32k page)+bank+page
+	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+	sta MUCAREX_BANK | 0 ; bank 0
+	sta MUCAREX_PAGE | 30 ; page 30 - first half of last sector of hirom
+
+	; check header
+	ldx # mds_head ; the header
+	ldu # MDS_ADDR_HEAD - MDS_ADDR_HEAD ; header in rom
+	ldb # (MDS_ADDR_DATA_MODEL - MDS_ADDR_HEAD) - 1
+/
+	lda b, x
+	cmpa b, u
+	bne mismatch ; mismatch in header
+	decb
+	bpl -
+
+	; check checksum
+	ldx MDS_ADDR_FIRST_DATA_IN_ROM - MDS_ADDR_HEAD ; size from rom -> ptr behind last word (in rom)
+	ldd # $0000
+/
+	addd , --x
+	cmpx # $0000
+	bne -
+	addd # $0000 ; same effect as "cmpd # $0000" but shorter+faster
+	bne mismatch ; checksum is not zero
+
+	; call init
+	jmp [MDS_ADDR_INIT_IN_ROM - MDS_ADDR_HEAD] ; call init in rom!
+
+mismatch:
+	; return to bootup code
+	sta MUCAREX_SET | MCR_SET_MODE0_BOOTUP | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+	; number of last supported function
+	lda # MDS_FUNC_STATUS
+	rts
+
+status:
+	ldu # text_storage_not_found
+	ldx # status_response
+	lda # 3
+	rts
+
+text_storage_not_found:
+	byt "STORAGE NOT FOUND", $ff
+
+mds_head:
+	byt MDS_HEAD
+
+status_response:
+	adr 0 ; free space
+	adr 0 ; used space
+	adr 0 ; deleted space
+
+
+	dephase
+mds_loader_reloc_end:
+
+	endsection

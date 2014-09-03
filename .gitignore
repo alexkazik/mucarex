@@ -1,0 +1,17 @@
+CPLD/*.jed
+CPLD/*.svf
+CPLD/log
+CPLD/synth
+CPLD/tmperr.err
+CPLD/_xmsgs
+PC/*.o
+PC/.deps
+PC/launcher.bin
+PC/launcher_bin.c
+PC/vectrexpack
+Vectrex/*.bin
+Vectrex/*.lst
+Vectrex/*.p
+Vectrex/.deps
+Vectrex/font.lib
+Vectrex/font.png

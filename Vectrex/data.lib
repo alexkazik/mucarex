@@ -1,0 +1,273 @@
+	;
+	; Copyright (c) 2014 ALeX Kazik
+	; All rights reserved.
+	;
+	; Redistribution and use in source and binary forms, with or without
+	; modification, are permitted provided that the following conditions are met:
+	;
+	; * Redistributions of source code must retain the above copyright notice, this
+	;   list of conditions and the following disclaimer.
+	;
+	; * Redistributions in binary form must reproduce the above copyright notice,
+	;   this list of conditions and the following disclaimer in the documentation
+	;   and/or other materials provided with the distribution.
+	;
+	; * Neither the names MuCaREX, p1x3l.net nor the names of its
+	;   contributors may be used to endorse or promote products derived from
+	;   this software without specific prior written permission.
+	;
+	; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	;
+
+	section data_lib
+	public F_store_game
+	public F_load_game
+
+	;
+	; COMMON
+	;
+common:
+	; copy game id
+	leau MDIR_ENT_GAME_ID, u
+	ldx # v_game_id
+/
+	ldd , u++
+	std , x++
+	cmpx # v_game_id+16
+	bne -
+
+	; game id (for both)
+	ldy # v_game_id
+
+	rts
+
+
+	;
+	; STORE
+	;
+F_store_game:
+	;
+	; common stuff
+	;
+
+	bsr common
+
+	;
+	; high score
+	;
+
+	; should be store?
+	jsr F_read_config
+	lda v_config_store_score
+	bne no_score
+
+	; store score, if valid
+	ldx # V_High_Score
+	ldb # 6
+
+	; check leading spaces
+/
+	lda 0, x
+	cmpa # $20
+	bne + ; is not a space
+	leax 1, x
+	decb
+	beq no_score ; all 6 digits are spaces
+	bra -
+
+	; check for digits
+/
+	lda , x+
+	cmpa # $30
+	blo no_score ; is not a digit
+	cmpa # $39
+	bhi no_score ; is not a digit
+	decb
+	bne -
+
+	; check for end marker
+	lda 0, x
+	bpl no_score
+
+	; check if score is 0
+	ldx # V_High_Score
+	ldb # 5
+/
+	lda , x+
+	anda # $0f
+	bne + ; not zero -> quit check
+	decb
+	bpl - ; more digits to check
+	bra no_score ; all digits are zero -> don't store
+/
+
+	; load old score
+	ldab MDS_FUNC_LOAD, MDS_TYPE_GAME_SCORE
+	ldx # 7
+	ldu # v_old_score
+	jsr [MDS_ADDR_DISPATCHER]
+
+	; check: is score loaded
+	bcs store_score
+
+	; check: is new score higher than older
+	ldx # v_old_score
+	ldu # V_High_Score
+	BIOS_Compare_Score
+	cmpa # 2
+	bne no_score ; new score is not higher
+
+store_score:
+	; call store data
+	ldab MDS_FUNC_STORE, MDS_TYPE_GAME_SCORE
+	ldx # 7
+	; ldy # v_game_id -- is set by common call
+	ldu # V_High_Score
+	jsr [MDS_ADDR_DISPATCHER]
+
+no_score:
+
+	;
+	; custom data
+	;
+
+	; check for valid header
+
+	; check for id+type
+	ldx # CUSTOMDATA_ADDR_START
+	ldu # custom_data_id_save_string
+	ldb # 10
+/
+	lda b, x
+	cmpa b, u
+	bne no_data ; not a valid header
+	decb
+	bpl -
+	; id+type (save) is valid
+
+	; check address
+	ldu CUSTOMDATA_ADDR_ADDR
+	cmpu # CUSTOMDATA_AREA_START
+	blo no_data ; addr < start of area
+
+	; check for length
+	ldx CUSTOMDATA_ADDR_LEN
+	beq no_data ; invalid length 0
+	cmpx # CUSTOMDATA_MAX_SIZE
+	bhi no_data ; invalid length >1024
+	tfr x, d
+	addd CUSTOMDATA_ADDR_ADDR
+	cmpd # CUSTOMDATA_AREA_END
+	bhi no_data ; addr + len > end of area
+
+	; found a valid custom data, store it
+
+	; call store data
+	ldab MDS_FUNC_STORE, MDS_TYPE_GAME_DATA
+	; ldx # length -- is already set
+	; ldy # v_game_id -- is set by common call
+	; ldu # address -- is already set
+	jsr [MDS_ADDR_DISPATCHER]
+	lda CUSTOMDATA_ADDR_FLAGS
+	sta v_customdata_flags
+
+no_data:
+	clr CUSTOMDATA_ADDR_TYPE ; make custom data invalid, just in case
+
+	;
+	; common
+	;
+
+	; reorg data (if needed)
+	lda # MDS_FUNC_REORG
+	jmp [MDS_ADDR_DISPATCHER]
+
+
+	;
+	; LOAD
+	;
+F_load_game:
+	;
+	; common stuff
+	;
+
+	tfr y, u
+	jsr common
+
+	;
+	; high score
+	;
+
+	; load old score
+	ldab MDS_FUNC_LOAD, MDS_TYPE_GAME_SCORE
+	ldx # 7
+	; ldy # v_game_id -- is set by common call
+	ldu # V_High_Score
+	jsr [MDS_ADDR_DISPATCHER]
+	; skip next part if a score was found
+	bcc +
+
+	; make highscore invisible (is a valid score but all spaces)
+	ldab ' ', ' '
+	std V_High_Score+0
+	std V_High_Score+2
+	std V_High_Score+4
+	lda # $80
+	sta V_High_Score+6
+/
+
+	clr V_High_Score_F ; mark hiscore valid (zero)
+
+	;
+	; custom data
+	;
+
+	; create a "new" mds-header
+	ldx # custom_data_id_save_string
+	ldu # CUSTOMDATA_ADDR_START
+	ldb # (CUSTOMDATA_ADDR_END - CUSTOMDATA_ADDR_START) - 1
+/
+	lda b, x
+	sta b, u
+	decb
+	bpl -
+	lda # CUSTOMDATA_TYPE_NEW
+	sta CUSTOMDATA_ADDR_TYPE
+
+	; load old score
+	ldab MDS_FUNC_LOAD, MDS_TYPE_GAME_DATA
+	ldx # CUSTOMDATA_MAX_SIZE
+	; ldy # v_game_id -- is set by common call
+	ldu # CUSTOMDATA_AREA_START
+	jsr [MDS_ADDR_DISPATCHER]
+	; skip next part if a score was found
+	bcs +
+
+	; found data, store length
+	std CUSTOMDATA_ADDR_LEN
+	; load "load" and the did restart bit
+	ldab CUSTOMDATA_TYPE_LOAD, CUSTOMDATA_FLAG_DID_RESTART
+	; remove all bits except did restart (if set)
+	andb v_customdata_flags
+	; store type + flags at once
+	std CUSTOMDATA_ADDR_TYPE
+/
+
+	rts
+
+
+custom_data_id_save_string:
+	byt CUSTOMDATA_ID, CUSTOMDATA_TYPE_SAVE, 0 ; ID, TYPE, FLAGS
+	adr 0, CUSTOMDATA_AREA_START ; LENGTH, START
+
+	endsection
+

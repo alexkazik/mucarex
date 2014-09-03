@@ -1,0 +1,46 @@
+eeschema (2013-07-07 BZR 4022)-stable  >> Creation date: 16.12.2013 11:53:40
+#Cmp ( order = Reference )
+| C1         0.1uF       
+| C2         0.1uF       
+| C3         0.1uF       
+| C4         0.1uF       
+| C5         4,7uF       
+| D1         LED         
+| J1         VOLTAGE     
+| P1         VECTREX     
+| P2         PROG        
+| P3         CPLDRES     
+| P4         VECRES      
+| R1         75          
+| R2         10k         
+| R3         10k         
+| U1         LOROM       
+| U2         HIROM       
+| U3         62256-80    
+| U4         XC9572XL-PC44
+| U5         TS2950      
+#End Cmp
+
+#Komponenten ( Sortiert nach Wert )
+| 0.1uF        C1        
+| 0.1uF        C2        
+| 0.1uF        C3        
+| 0.1uF        C4        
+| 4,7uF        C5        
+| LED          D1        
+| VOLTAGE      J1        
+| VECTREX      P1        
+| PROG         P2        
+| CPLDRES      P3        
+| VECRES       P4        
+| 75           R1        
+| 10k          R2        
+| 10k          R3        
+| LOROM        U1        
+| HIROM        U2        
+| 62256-80     U3        
+| TS2950       U5        
+| XC9572XL-PC44 U4        
+#Ende der Komponente
+
+#Ende der Liste

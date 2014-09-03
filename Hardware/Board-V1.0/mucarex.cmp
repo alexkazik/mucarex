@@ -1,0 +1,129 @@
+Cmp-Mod V01 Created by CvPcb (2013-07-07 BZR 4022)-stable date = 21.08.2014 08:10:08
+
+BeginCmp
+TimeStamp = /52A85FCF;
+Reference = C1;
+ValeurCmp = 0.1uF;
+IdModule  = C1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A85FF1;
+Reference = C2;
+ValeurCmp = 0.1uF;
+IdModule  = C1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A86003;
+Reference = C3;
+ValeurCmp = 0.1uF;
+IdModule  = C1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A86015;
+Reference = C4;
+ValeurCmp = 0.1uF;
+IdModule  = C1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52AECD65;
+Reference = C5;
+ValeurCmp = 4,7uF;
+IdModule  = C1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A5B44B;
+Reference = D1;
+ValeurCmp = LED;
+IdModule  = LED-3MM;
+EndCmp
+
+BeginCmp
+TimeStamp = /52AECE46;
+Reference = J1;
+ValeurCmp = VOLTAGE;
+IdModule  = PIN_ARRAY_3X1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A6F578;
+Reference = P1;
+ValeurCmp = VECTREX;
+IdModule  = VECTREX-EDGE;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A5B437;
+Reference = P2;
+ValeurCmp = PROG;
+IdModule  = PIN_ARRAY_5x2;
+EndCmp
+
+BeginCmp
+TimeStamp = /53F58DA1;
+Reference = P3;
+ValeurCmp = CONN_1;
+IdModule  = 1pin;
+EndCmp
+
+BeginCmp
+TimeStamp = /53F58DCC;
+Reference = P4;
+ValeurCmp = CONN_1;
+IdModule  = 1pin;
+EndCmp
+
+BeginCmp
+TimeStamp = /53F58DD8;
+Reference = P5;
+ValeurCmp = CONN_1;
+IdModule  = PIN_ARRAY_1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A5B45A;
+Reference = R1;
+ValeurCmp = 75;
+IdModule  = R1;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A5B352;
+Reference = U1;
+ValeurCmp = LOROM;
+IdModule  = PLCC32;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A70891;
+Reference = U2;
+ValeurCmp = HIROM;
+IdModule  = PLCC32;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A5ACEB;
+Reference = U3;
+ValeurCmp = 62256-80;
+IdModule  = DIP-28__600;
+EndCmp
+
+BeginCmp
+TimeStamp = /52A6EFDB;
+Reference = U4;
+ValeurCmp = XC9572XL-PC44;
+IdModule  = PLCC44;
+EndCmp
+
+BeginCmp
+TimeStamp = /52FB6204;
+Reference = U5;
+ValeurCmp = TS2950;
+IdModule  = TO-92-Free-inline-wide;
+EndCmp
+
+EndListe

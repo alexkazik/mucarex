@@ -1,0 +1,210 @@
+	;
+	; Copyright (c) 2014 ALeX Kazik
+	; All rights reserved.
+	;
+	; Redistribution and use in source and binary forms, with or without
+	; modification, are permitted provided that the following conditions are met:
+	;
+	; * Redistributions of source code must retain the above copyright notice, this
+	;   list of conditions and the following disclaimer.
+	;
+	; * Redistributions in binary form must reproduce the above copyright notice,
+	;   this list of conditions and the following disclaimer in the documentation
+	;   and/or other materials provided with the distribution.
+	;
+	; * Neither the names MuCaREX, p1x3l.net nor the names of its
+	;   contributors may be used to endorse or promote products derived from
+	;   this software without specific prior written permission.
+	;
+	; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	;
+
+	;
+	; draw string
+	; in:
+	; 	D = position
+	; 	U = ptr to string
+	; out:
+	;	A = end marker ($00, $80-$ff)
+	;	U = ptr to end marker+1
+	; trashed:
+	;	B, X
+
+	section draw_lib
+	public f_draw_string
+
+	assume DPR:$d0
+
+	; switch full / fast moveto routine, it looke like the fast one does quite good
+c_full_moveto_emulation = 0
+
+f_draw_string:
+
+	;
+	; BEGIN: Moveto_d_7E (yes, only $7e)
+	;
+
+	; if the vector length is less than the half possible
+	; double the length and halve the scale factor (half the time)
+	cmpb # 64
+	bpl full_scale ; branches if b < -64 || b >= 64
+	cmpa # 64
+	bpl full_scale
+
+half_scale:
+	; double vector
+	lsla
+	lslb
+	sta VIA_port_a	;	 Store Y in D/A register
+	if c_full_moveto_emulation=1
+	pshs d				; Save D-register on stack
+	endif
+	; half scale factor
+	lda # $3f
+	bra set_scale
+
+full_scale:
+	sta VIA_port_a		;Store Y in D/A register
+	if c_full_moveto_emulation=1
+	pshs d				; Save D-register on stack
+	endif
+	lda # $7e			; Set scale factor to $7F
+
+set_scale:
+	sta VIA_t1_cnt_lo
+	clr VIA_port_b		; Enable mux
+	lda # $ce			; Blank low, zero high?
+	sta VIA_cntl
+	clr VIA_shift_reg	; Clear shift regigster
+	inc VIA_port_b		; Disable mux
+	stb VIA_port_a		; Store X in D/A register
+	clr VIA_t1_cnt_hi	; timer 1 count high
+
+	if c_full_moveto_emulation=1
+
+	puls d				; Get back D-reg
+
+	; use the free time
+	pshs y
+	ldy # t_font
+
+	; BEGIN: Abs_a_b
+	; NOTICE: This version crashes on -128 (but the software never uses it)
+	tsta
+	bpl +
+	nega
+/
+	tstb
+	bpl +
+	negb
+/
+	; END: Abs_a_b
+
+	; this code is now irq safe, a little slower and currently not used anyway
+	stb , -s
+	ora , s+
+
+	ldb # $40
+	cmpa # $40
+	bls length_up_to_40
+	cmpa # $64
+	bls length_up_to_64
+	lda # 8
+	bra +
+
+length_up_to_64:
+	lda # 4
+/
+	; wait for timer 1
+/
+	bitb VIA_int_flags
+	beq -
+	; Delay a moment
+/
+	deca
+	bne -
+	bra ++
+
+length_up_to_40:
+	; wait for timer 1
+/
+	bitb VIA_int_flags
+	beq -
+
+/
+
+	else
+
+	; use the free time
+	pshs y
+	ldy # t_font
+
+	; wait for timer 1
+	ldb # $40
+/
+	bitb VIA_int_flags
+	beq -
+
+	endif
+
+	;
+	; END: Moveto_d_7E (yes, only 7E)
+	;
+
+
+
+	; scale factor
+	lda v_string_scale_factor
+	sta VIA_t1_cnt_lo
+char_loop:
+	lda , u+
+	ble end_loop
+
+	suba # $40
+	asla
+	ldx a, y
+
+	; disable interrupts while drawing one char
+	orcc i
+
+	; BEGIN: Draw_VLp
+/
+	ldd 1, x			; Get next coordinate pair
+	sta VIA_port_a		; Send Y to A/D
+	clr VIA_port_b		; Enable mux
+	lda 0, x			; Get pattern byte
+	inc VIA_port_b		; Disable mux
+	stb VIA_port_a		; Send X to A/D
+	sta VIA_shift_reg	; Store pattern in shift register
+	clr VIA_t1_cnt_hi	; Clear T1H = reload timer with latch
+	ldab $00, $40		; B-reg = T1 interrupt bit
+	leax 3, x			; Advance to next point in list
+/
+	bitb VIA_int_flags	; Wait for T1 to time out
+	beq -
+	nop					; Wait a moment more
+	sta VIA_shift_reg	; Clear shift register (blank output)
+	lda 0, x			; Get next pattern byte
+	ble --				; Go back if high bit of pattern is set or completley zero
+	; END: Draw_VLp
+
+	; enable interrupts again
+	andcc i
+
+	bra char_loop
+
+end_loop:
+	puls y, pc ; includes an rts ;-)
+
+	assume dpr:nothing
+
+	endsection

@@ -1,0 +1,862 @@
+	;
+	; Copyright (c) 2014 ALeX Kazik
+	; All rights reserved.
+	;
+	; Redistribution and use in source and binary forms, with or without
+	; modification, are permitted provided that the following conditions are met:
+	;
+	; * Redistributions of source code must retain the above copyright notice, this
+	;   list of conditions and the following disclaimer.
+	;
+	; * Redistributions in binary form must reproduce the above copyright notice,
+	;   this list of conditions and the following disclaimer in the documentation
+	;   and/or other materials provided with the distribution.
+	;
+	; * Neither the names MuCaREX, p1x3l.net nor the names of its
+	;   contributors may be used to endorse or promote products derived from
+	;   this software without specific prior written permission.
+	;
+	; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	;
+
+	cpu 6809
+
+	include "utils.inc"
+	include "vectrex.inc"
+	include "mds.inc"
+	include "mucarex.inc"
+
+MDS_DPR = MDS_ADDR_HEAD >> 8
+MDS_TYPE_MASK = $e0
+MDS_SIZE_MASK = $1f
+MDS_MAX_DATA_SIZE = $1fff
+
+MDS_SEQ_VERSION = 20
+
+	;
+	; mucarex data storage header
+	;
+
+	org MDS_ADDR_HEAD
+
+	byt MDS_HEAD ; 24 bytes
+	byt MDS_DATA_MODEL_SEQ ; data model
+	adr MDS_SEQ_VERSION + FLASH_VERSION ; version
+	adr end_code ; end of code (checksum over it)
+	adr init_in_rom ; the real init routine, in rom not ram!
+	adr dispatcher
+
+dispatcher:
+	; the dispatcher may be called with DP not yet set
+	assume dpr:nothing
+
+	; store x (in case it's needed)
+	stx v_data_length
+
+	; check if function is known
+	cmpa # (functions_end - functions) / 2
+	bhs return_failure
+	; call function if it's init or status
+	cmpa # MDS_FUNC_STATUS
+	bls +
+	; check if flash is known and writeable (for other functions than init/status)
+	ldx v_status
+	cmpx # text_flash_ok
+	bne return_failure
+/
+
+	; setup DPR+Y
+	pshs dp, y, b
+	Set_DPR_kill_B MDS_DPR
+	puls b
+	leay -2, y
+
+	; calc function offset
+	asla
+	; valid function + flash is known and writeable (or init or status)
+	ldx # functions
+	jmp [a, x]
+
+	; *
+	; * quick access code (due to direct page)
+	; *
+
+	;
+	; functions to find entries
+	;
+find_init:
+	; IN:
+	;  B = type to serach for
+	; OUT:
+	;  -
+	; remember type to search for
+	stb v_search_type
+	; switch to correct mode(32k page)+bank+page
+	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+	sta MUCAREX_BANK | 0 ; bank 0
+	sta MUCAREX_PAGE | 30 ; page 30 - first half of last sector of hirom
+find_reinit:
+	; read-addr (from flash)
+	ldx MDS_ADDR_FIRST_DATA_IN_ROM - MDS_ADDR_HEAD
+	; is the first run
+	lda # $01
+	sta v_find_first_run
+return_failure:
+	orcc c ; not used on find_init
+	rts
+
+	; find will return:
+	;   C = 0, D = header on success
+	;   C = 1 on end/free
+
+find_loop:
+	; is it the first run?
+	lsr v_find_first_run
+	bcs check_entry
+
+find_skip_entry:
+	; skip the entry
+	ldd 0, x
+	anda # MDS_SIZE_MASK ; remove type bits, keep only size bits
+	addd # 18 ; add "head(2) + game id(16)" to the real size
+	leax d, x ; skip entry
+
+check_entry:
+	; find an entry
+	lda 0, x
+	anda # MDS_TYPE_MASK ; remove size bits, keep only type bits
+	cmpa # MDS_TYPE_FREE
+	beq check_end ; type = free (or damaged)
+	cmpa v_search_type
+	bne find_skip_entry ; type mismatch -> skip
+	; is a valid entry - check game id
+	ldb # 17
+/
+	lda b, x
+	cmpa b, y
+	bne find_skip_entry ; game id mismatch -> skip it
+	decb
+	cmpb # 1
+	bne -
+
+	; found a valid entry with correct game id
+	ldd 0, x
+	; A,B = header+size
+	andcc c
+	; C = 0
+	rts
+
+check_end:
+	orcc c
+	; C = 1 -> free (or damaged) flash
+	rts
+
+
+make_entry_invalid:
+	; A = trashed
+	; all other registers to be kept
+	lda 0, x
+	anda # MDS_SIZE_MASK ; remove type bits -> type = 0 = deleted (keep size bits)
+	jsr write_byte
+	leax -1, x
+	rts
+
+write_byte:
+	; A = byte to write (kept)
+	; X = addr to write to (inc'ed)
+	; all other registers to be kept
+
+	pshs b
+
+	; light led!
+	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK0 | MCR_SET_LED_ON | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+
+	FLASH_WRITE_BYTE
+
+	; check success
+	cmpa , x+
+	beq +
+	; verify failed! - mark for a forced reorg
+	ldb # $90
+	stb v_check_reorg
+/
+	puls b, pc
+
+
+	;
+	; variables
+	;
+
+v_search_type:
+v_rerog_skip_entry:
+	byt $ff
+
+v_check_reorg:
+	byt $ff
+
+v_find_first_run:
+	byt $ff
+
+v_bytes_to_write:
+	adr $ffff
+
+v_status:
+	adr $ffff ; status text
+
+v_data_length:
+	adr $ffff
+
+	; status response
+
+status_response:
+v_free_space:
+	adr $ffff ; free space
+v_used_space:
+	adr $ffff ; used space
+v_deleted_space:
+	adr $ffff ; deleted space
+
+
+
+	;
+	; INIT
+	;
+
+	; init-code, DP is not set!
+	assume dpr:nothing
+
+	phase * - MDS_ADDR_HEAD
+
+	; !! will be called while located in rom, any DPR
+
+init_in_rom:
+	; setup DPR+Y
+	pshs dp, y
+	Set_DPR_kill_B MDS_DPR
+
+	; copy ourself to ram
+	ldx # $0000
+	ldu # MDS_ADDR_HEAD
+/
+	ldd , x++
+	std , u++
+	cmpx # end_code
+	blo -
+
+	; !! jump into ram
+	jmp init
+
+	dephase
+
+init:
+	; no reorg needed (yet)
+	clr v_check_reorg
+
+	; init mucarex to correct bank
+	jsr find_init
+
+	; set status to unkown flash
+	ldu # text_unknown_flash
+
+	FLASH_CHECK_TYPE
+
+	; update status
+	stu v_status
+
+	; number of last supported function (all known functions)
+	lda # MDS_FUNC_REORG_CLEAN
+	; check status, if not all ok -> report only init+status as functions
+	ldx v_status
+	cmpx # text_flash_ok
+	beq +
+	lda # MDS_FUNC_STATUS
+/
+
+exit1:
+	; return to bootup code
+	sta MUCAREX_SET | MCR_SET_MODE0_BOOTUP | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+	puls dp, y, pc
+
+
+
+	;
+	; status
+	;
+status:
+	; IN:
+	;  -
+	; OUT:
+	;  D,X,U according to documentation
+
+	jsr find_init
+	ldy # $0000 ; used
+	ldu # $0000 ; deleted
+/
+	cmpx # $8000
+	bhs end_mem
+	ldd 0, x
+	cmpa # MDS_TYPE_FREE
+	bhs end_mem
+	bita # MDS_TYPE_MASK
+	beq is_del
+is_used:
+	anda # MDS_SIZE_MASK ; remove type
+	addd # 2+16
+	leay d, y
+	bra +
+is_del:
+	addd # 2+16
+	leau d, u
+/
+	leax d, x
+	bra --
+
+end_mem:
+
+	; d = const - x
+	pshs x
+	ldd # $8000
+	subd , s++
+	; check if too much space is used, show 0
+	bpl +
+	ldd # 0
+/
+
+	std v_free_space
+	sty v_used_space
+	stu v_deleted_space
+
+	ldu v_status
+	ldx # status_response
+	lda # 3
+	bra exit1
+
+
+
+	;
+	; data saver
+	;
+store:
+	; IN:
+	;   B = type
+	;   X (on stack) = length
+	;   Y = ptr to gameid-2
+	;   U = address
+	; OUT:
+	;   Y = kept
+	stb smc_store_type
+	ldx v_data_length
+	cmpx # MDS_MAX_DATA_SIZE
+	bhi exit2 ; length > max. length
+
+	; search for free space
+	jsr find_init
+/
+	jsr find_loop
+	bcc -
+
+	; check length of free space
+	tfr x, d
+	addd # 18
+	addd v_data_length
+	bmi exit2 ; current position + head + data > end of flash!
+
+	; check if free space is really free
+	stx smc_store_x_start
+	tfr d, x
+/
+	lda , -x
+	cmpa # $ff
+	bne exit2 ; space is not free
+smc_store_x_start equ *+1
+	cmpx # $ffff
+	bne -
+
+	; search for free space + erase old data
+
+	; get ptr to stored data
+	jsr find_reinit
+/
+	jsr find_loop
+	bcs store_nothing_found
+
+	; erase data
+	jsr make_entry_invalid
+	bra - ; run loop again (no other data should be found but the end)
+
+store_nothing_found:
+	; write data
+	ldd v_data_length
+smc_store_type equ *+1
+	ora # $ff
+	; ldu address = done
+
+	;
+	; data write function
+	;
+
+	; D = head | number of bytes (destroyed)
+	; X = ptr to free space (inc'ed correctly)
+	; U = ptr to data (destroyed)
+	; Y = ptr to game id-1 (kept)
+
+	; mark for reorg check
+	inc v_check_reorg
+
+	; store a,b
+	pshs a, b
+
+	; write head (hi)
+	jsr write_byte
+	; write head (lo)
+	tfr b, a
+	jsr write_byte
+
+	; write game id
+	ldb # 2
+/
+	lda b, y
+	jsr write_byte
+	incb
+	cmpb # 2+16
+	bne -
+
+	; restore a+b
+	puls a, b
+
+	; remove head -> length, store in y
+	anda # MDS_SIZE_MASK
+	tfr d, y
+
+	; write data
+/
+	lda , u+
+	jsr write_byte
+	leay -1, y
+	bne -
+
+exit2:
+	; return to bootup code
+	sta MUCAREX_SET | MCR_SET_MODE0_BOOTUP | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+	puls dp, y, pc
+
+
+
+	;
+	; data loader
+	;
+load:
+	; IN:
+	;   B = type
+	;   X (on stack) = max. length
+	;   Y = ptr to gameid-2
+	;   U = address
+	; OUT:
+	;   Y = kept
+	;   when found
+	;     D = length
+	;     C = 0
+	;   when not found
+	;     C = 1
+
+	ldx v_data_length
+
+	jsr find_init
+/
+	jsr find_loop
+	bcs load_nothing_found
+
+	anda # MDS_SIZE_MASK ; remove type bits
+	cmpd v_data_length
+	bhi load_nothing_found ; is too long -> ignore it
+	std smc_load_length
+	tfr d, y
+
+	; skip header
+	leax 18, x
+
+/
+	lda , x+
+	sta , u+
+	leay -1, y
+	bne -
+
+smc_load_length equ *+1
+	ldd # $ffff
+
+	; clear carry
+	andcc c
+
+	; done
+	bra exit2
+
+load_nothing_found:
+	; set carry
+	orcc c
+
+	; done
+	bra exit2
+
+
+
+	;
+	; delete data
+	;
+delete:
+	; IN:
+	;   B = type
+	;   Y = ptr to gameid-2
+	; OUT:
+	;   -
+
+	; get ptr to stored data
+	jsr find_init
+/
+	jsr find_loop
+	bcs exit2 ; no more entries found
+
+	; erase data
+	jsr make_entry_invalid
+	bra - ; run loop again (no other data should be found but the end)
+
+
+
+	;
+	; geenerate a directory
+	;
+dir:
+	; IN:
+	;  -
+	; OUT:
+	;  X = ptr to directory
+	;  U = ptr to first byte behind directory
+	;    the directory will be within $8000-$bfff
+	;  C=0 on success, 1 on failure (on failure X,U is undef)
+
+	jsr find_init
+	ldu # MDS_DATA_AREA_START
+dir_loop:
+	lda 0, x
+	anda # MDS_TYPE_MASK
+	beq dir_skip_entry
+	cmpa # MDS_TYPE_FREE
+	beq dir_exit_success
+
+	cmpu # $c000-19
+	bhi dir_exit_failure
+
+	; copy entry
+
+	; type
+	sta , u+
+
+	; size+gameid
+	ldb # 17
+/
+	lda b, x
+	sta b, u
+	decb
+	bpl -
+
+	; fix size (remove type bits)
+	anda # MDS_SIZE_MASK
+	sta 0, u
+
+	leau 18, u
+
+dir_skip_entry:
+	ldd 0, x
+	anda # MDS_SIZE_MASK
+	addd # 18
+	leax d, x
+	bra dir_loop
+
+
+dir_exit_failure:
+	orcc c
+	bra exit3
+
+dir_exit_success:
+	andcc c
+	ldx # MDS_DATA_AREA_START
+	bra exit3
+
+
+	;
+	;
+	; reorg the flash
+	;
+	;
+
+	;
+	; code in RAM
+	;
+
+common_reorg:
+	jsr find_init
+	puls y
+	ldb # relocate_stack_end - relocate_stack_start
+	ldu # relocate_stack_end
+/
+	lda , -u
+	sta , -s
+	decb
+	bne -
+	tfr y, pc
+
+reorg_clean:
+	bsr common_reorg
+	ldu # end_code
+	stu v_bytes_to_write
+	bra do_reorg
+
+reorg_force:
+	lda # $a0
+	sta v_check_reorg
+
+reorg:
+	bsr common_reorg
+	; check if needed
+	lda v_check_reorg
+	beq exit_reorg ; no need to reorg (nothing was written)
+	; is the data on flash compatible (same mds + data model)
+	ldx # MDS_ADDR_VERSION - MDS_ADDR_HEAD
+	ldu # MDS_ADDR_VERSION
+/
+	ldd , --x
+	cmpd , --u
+	bne exit_reorg ; either not an MDS or a invalid data model
+	cmpx # $0000
+	bne - ; loop until X = 0
+	; load the ptr to the first data from rom. that way it can start at another address then this version.
+	ldx MDS_ADDR_FIRST_DATA_IN_ROM - MDS_ADDR_HEAD
+	ldu # end_code + $8000
+
+	; copy data til the end of ram
+/
+	ldd , x++
+	std , u++
+	cmpu # $c000
+	bne -
+
+	jsr stack_copy_to_ram_and_defrag - stack_base, s
+
+	; remember end pointer (which is also the length beacuse the start is $0000)
+	stu v_bytes_to_write
+
+	; force a reorg?
+	lda v_check_reorg
+	bmi do_reorg
+
+	; would the defrag save space?
+	cmpx v_bytes_to_write
+	beq exit_reorg ; no space would be saved -> don't reorg
+
+	; are we almost out of space?
+	cmpx # $8000 - (MDS_MAX_DATA_SIZE + 2 + 16)
+	bhi do_reorg
+
+exit_reorg:
+	; reorg not needed
+	clr v_check_reorg
+	; "remove" code form stack
+	leas relocate_stack_end - relocate_stack_start, s
+exit3:
+	; return to bootup code
+	sta MUCAREX_SET | MCR_SET_MODE0_BOOTUP | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+	puls dp, y, pc
+
+do_reorg:
+
+	; mark reorg done
+	clr v_check_reorg
+
+	; calculate new checksum! (becuase the variables are changed! [and they are part of everything])
+
+	; add all code
+	ldx # MDS_ADDR_HEAD
+	ldd # $0000
+/
+	subd , x++
+	cmpx # checksum
+	bne -
+
+	; store checksum
+	std 0, x
+
+	; light led!
+	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK0 | MCR_SET_LED_ON | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+
+	FLASH_ERASE_SECTOR
+
+	; write everything
+	ldx # $0000
+	ldy v_bytes_to_write
+	jsr stack_write_flash - stack_base, s
+
+	; check if there was an verify error
+	lda v_check_reorg
+	bne do_reorg ; found an problem -> erase + write again
+
+	bra exit_reorg
+
+	;
+	; code on stack
+	;
+
+relocate_stack_start:
+
+	phase $cbbc
+
+stack_base:
+
+stack_write_flash:
+/
+	; activate ram mode
+	sta MUCAREX_SET | MCR_SET_MODE1_RAM | MCR_SET_LED_ON | MCR_SET_DO_PAGE_OFF | MCR_SET_ID | MCR_SET_MASTER
+
+	; load data from ram-mode
+	lda 0, x
+
+	; switch to 32k mode, ram bank 0
+	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK0 | MCR_SET_LED_ON | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+
+	jsr write_byte
+	leay -1, y
+	bne -
+	rts
+
+stack_copy_to_ram_and_defrag:
+	; switch to ram bank 1
+	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK1 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+
+	; copy data til the end of ram
+	ldu # $8000
+/
+	ldd , x++
+	std , u++
+	cmpu # $c000
+	bne -
+
+	; activate ram mode
+	sta MUCAREX_SET | MCR_SET_MODE1_RAM | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_OFF | MCR_SET_ID | MCR_SET_MASTER
+
+	; call defrag
+	jsr defrag
+
+	; switch to ram bank 0
+	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
+
+	rts
+
+	dephase
+
+relocate_stack_end:
+
+	;
+	; code in cartridge area
+	;
+
+	phase * - MDS_ADDR_HEAD
+
+defrag:
+
+	ldx # end_code ; src ptr
+	ldu # end_code ; dst ptr
+
+read_loop:
+	; is the header inside the cartridge area?
+	cmpx # $8000 - (2 + 16)
+	bhs defrag_done
+	; is the entry deleted?
+	lda 0, x
+	anda # MDS_TYPE_MASK
+	beq defrag_skip_entry
+	; is the entry free?
+	cmpa # MDS_TYPE_FREE
+	beq defrag_done ; type free found -> end
+	; calc real size
+	ldd 0, x
+	anda # MDS_SIZE_MASK
+	addd # 18 ; add "head(2) + game id(16)" to the real size
+	; check source
+	leay d, x
+	cmpy # $8000
+	bhs defrag_done ; this entry exeeds the end of the flash -> end the scan
+	; check destination
+	leay d, u
+	cmpy # $8000
+	bhs defrag_done ; this entry does not fit into it -> end the scan
+	; copy data
+	tfr d, y
+/
+	lda , x+
+	sta , u+
+	leay -1, y
+	bne -
+	bra read_loop
+
+defrag_skip_entry:
+	; calc real size
+	ldd 0, x
+	anda # MDS_SIZE_MASK
+	addd # 18 ; add "head(2) + game id(16)" to the real size
+	leax d, x
+	bra read_loop
+
+defrag_done:
+	rts
+
+	dephase
+
+	;
+	; DATA
+	;
+
+	;
+	; dispatcher functions
+	;
+
+functions:
+	adr init, status, load, store, delete, dir, reorg, reorg_force, reorg_clean
+functions_end:
+
+	; status texts
+
+text_unknown_flash:
+	byt "UNKNOWN FLASH", $ff
+
+text_protected:
+	byt "FLASH IS PROTECTED", $ff
+
+text_flash_ok:
+	byt FLASH_NAME, " FOUND", $ff
+
+	;
+	; pad to word size
+	;
+
+	align 2
+
+	;
+	; checksum complement (so a sum of all would be $0000)
+	;
+
+checksum:
+	adr $ffff
+
+end_code = * - $8000 ; in cartridge area
+
+
+	;
+	; free ram/rom from here on
+	;

@@ -1,0 +1,526 @@
+	;
+	; Copyright (c) 2014 ALeX Kazik
+	; All rights reserved.
+	;
+	; Redistribution and use in source and binary forms, with or without
+	; modification, are permitted provided that the following conditions are met:
+	;
+	; * Redistributions of source code must retain the above copyright notice, this
+	;   list of conditions and the following disclaimer.
+	;
+	; * Redistributions in binary form must reproduce the above copyright notice,
+	;   this list of conditions and the following disclaimer in the documentation
+	;   and/or other materials provided with the distribution.
+	;
+	; * Neither the names MuCaREX, p1x3l.net nor the names of its
+	;   contributors may be used to endorse or promote products derived from
+	;   this software without specific prior written permission.
+	;
+	; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+	; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+	; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+	; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+	; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+	; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+	; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+	; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	;
+
+	section submenu_lib
+	public f_submenu
+
+	;
+	; save config/settings
+	;
+
+	assume dpr:$C8
+
+	; set new default bank
+do_set_default:
+	ldx v_dir_ptr_ent
+	lda MDIR_ENT_BANK, x
+	sta v_settings_default_bank
+	; call write config
+	bra store_settings
+
+	; delete hiscore
+do_delete_score:
+	; call delete score
+	ldab MDS_FUNC_DELETE, MDS_TYPE_GAME_SCORE
+	ldy # v_game_id
+	jsr [MDS_ADDR_DISPATCHER]
+	bra restart_all
+
+	; delete data
+do_delete_data:
+	; call delete data
+	ldab MDS_FUNC_DELETE, MDS_TYPE_GAME_DATA
+	ldy # v_game_id
+	jsr [MDS_ADDR_DISPATCHER]
+	bra restart_all
+
+	; set new en/disable highscore
+do_enable_score:
+	clra
+	bra +
+do_disable_score:
+	lda # 1
+/
+	sta v_config_store_score
+	bra store_config
+
+	; set startup mode
+do_start_def:
+	clra
+	bra +
+do_start_slow:
+	lda # 1
+	bra +
+do_start_fast:
+	lda # 2
+	bra +
+do_start_inst:
+	lda # 3
+/
+	sta v_config_startup
+	; store the game config!
+store_config:
+	jsr F_write_config
+	bra restart_all
+
+
+	; set new global startup
+do_def_start_slow:
+	lda # 1
+	bra +
+do_def_start_fast:
+	lda # 2
+	bra +
+do_def_start_inst:
+	lda # 3
+/
+	sta v_settings_startup
+	; call write settings
+store_settings:
+	jsr F_write_settings
+	bra restart_all
+
+	; set new display mode
+do_def_display_3lines:
+	lda # 1
+	bra +
+do_def_display_5lines:
+	clra
+/
+	sta v_settings_3linemode
+	bra store_settings
+
+do_force_reorg:
+	lda # MDS_FUNC_REORG_FORCE
+	jsr [MDS_ADDR_DISPATCHER]
+	bra restart_all
+
+	;
+	; the submenu
+	;
+
+f_submenu:
+	assume dpr:nothing
+	; set DP to fasten up
+	Set_DPR_kill_B $C8
+
+	; save menu pointers
+	ldx v_ptr_cat
+	stx v_dir_ptr_cat
+	ldx v_ptr_ent
+	stx v_dir_ptr_ent
+
+restart_all:
+	; store new ones
+	ldx # d_submenu
+	stx v_ptr_cat
+	ldx # $0000
+	stx v_ptr_ent
+
+	;
+	; build submenu
+	;
+
+	; deflate submenu
+	ldx # d_entries_start
+	ldu # v_reloc_submenu
+	; copy a entry
+copy_entry:
+	ldb # MDIR_ENT_LENGTH
+/
+	lda , x+
+	sta , u+
+	decb
+	bne -
+	; skip to next
+	leax -MDIR_ENT_LENGTH+2, x
+/
+	lda , x+
+	bne -
+	cmpx # d_entries_end
+	bne copy_entry
+
+	;
+	; build game menu
+	;
+
+	ldy v_dir_ptr_ent
+
+	; copy name
+	leax MDIR_ENT_NAME+1, y
+	ldu # d_submenu_game_name
+	jsr string_copy
+
+	; get size
+	ldu # d_submenu_game_size
+	lda # 4
+	ldb MDIR_ENT_BANKSIZE, y
+	mul
+	jsr bin2ascii
+
+	; get type
+	ldb MDIR_ENT_FLAGS, y
+	andb # MDIR_FLAG_MODE
+	aslb
+	ldx # table_mode
+	ldx b, x
+	ldu # d_submenu_game_type
+	jsr string_copy
+
+	; copy game id
+	leax MDIR_ENT_GAME_ID, y
+	ldu # v_game_id
+	ldb # 16-1
+/
+	lda , x+
+	sta , u+
+	decb
+	bpl -
+
+	; get score
+	ldab MDS_FUNC_LOAD, MDS_TYPE_GAME_SCORE
+	ldx # 7
+	ldy # v_game_id
+	ldu # v_old_score
+	jsr [MDS_ADDR_DISPATCHER]
+	; if a score is loaded
+	bcs +
+	ldx # v_old_score
+	ldu # d_submenu_game_score
+	jsr string_copy
+/
+
+	; get data
+	ldab MDS_FUNC_LOAD, MDS_TYPE_GAME_DATA
+	ldx # MDS_DATA_AREA_LENGTH
+	;ldy # v_game_id -- not changed
+	ldu # MDS_DATA_AREA_START
+	jsr [MDS_ADDR_DISPATCHER]
+
+	; if data is found
+	bcs +
+	ldu # d_submenu_game_data
+	jsr bin2ascii
+/
+
+	; game id
+	ldx # v_game_id
+	ldu # d_submenu_game_gameid
+	ldb # 6
+/
+	lda , x+
+	jsr bin2hex
+	decb
+	bne -
+
+	;
+	; build config menu
+	;
+
+	; enable/disable score saving
+	jsr F_read_config
+	lda v_config_store_score
+	bne +
+	inc d_submenu_config_en_score
+	bra ++
+/
+	inc d_submenu_config_dis_score
+/
+
+	; startup method
+	lda v_config_startup
+	ldb # MDIR_ENT_LENGTH
+	mul
+	ldx # d_submenu_config_startup
+	inc d, x
+
+	;
+	; build settings menu
+	;
+
+	; get version
+	ldu # d_submenu_system_version
+	ldd d_version
+	jsr bin2ascii
+
+	lda v_settings_startup
+	ldb # MDIR_ENT_LENGTH
+	mul
+	ldx # d_submenu_settings_startup
+	inc d, x
+
+	lda v_settings_3linemode
+	beq +
+	lda # MDIR_ENT_LENGTH
+/
+	ldx # d_submenu_settings_display + MDIR_ENT_LENGTH
+	inc a, x
+
+	;
+	; build flash menu
+	;
+
+	; get status
+	lda # MDS_FUNC_STATUS
+	jsr [MDS_ADDR_DISPATCHER]
+
+	; status
+	ldy # d_submenu_flash_status
+/
+	lda , u+
+	sta , y+
+	bpl -
+
+	; bytes
+	ldd 0, x
+	ldu # d_submenu_flash_free
+	jsr bin2ascii
+	ldd 2, x
+	ldu # d_submenu_flash_used
+	jsr bin2ascii
+	ldd 4, x
+	ldu # d_submenu_flash_deleted
+	jsr bin2ascii
+
+	; version
+	ldd MDS_ADDR_VERSION
+	ldu # d_submenu_flash_version
+	jsr bin2ascii
+
+
+rerun_menu:
+	assume dpr:nothing
+	clra
+	jsr f_menu
+	assume dpr:nothing
+
+	; set DP to fasten up
+	Set_DPR_kill_B $C8
+
+	; check exit key
+	bita # %0110
+	bne exit_submenu
+
+	; check action
+	lda MDIR_ENT_BANK, y
+	ldx # funtion_table
+	jmp [a, x]
+
+funtion_table:
+	adr rerun_menu
+	adr do_set_default
+	adr do_delete_score
+	adr do_delete_data
+	adr do_enable_score
+	adr do_disable_score
+	adr do_start_def
+	adr do_start_slow
+	adr do_start_fast
+	adr do_start_inst
+	adr do_def_start_slow
+	adr do_def_start_fast
+	adr do_def_start_inst
+	adr do_force_reorg
+	adr do_def_display_5lines
+	adr do_def_display_3lines
+
+exit_submenu:
+	; restore menu pointers
+	ldx v_dir_ptr_cat
+	stx v_ptr_cat
+	ldx v_dir_ptr_ent
+	stx v_ptr_ent
+
+	rts
+
+string_copy:
+/
+	lda , x+
+	sta , u+
+	beq +
+	bpl -
+/
+	rts
+
+;
+; game-menu
+;
+
+table_mode:
+	adr table_mode0, table_mode1, table_mode2, table_mode3
+
+table_mode0:
+	byt "PLAIN (UP TO 32K)", $00
+table_mode1:
+	byt "64K BANKED (BY PB6)", $00
+table_mode2:
+	byt "SRAM (UP TO 32K)", $00
+table_mode3:
+	byt "PAGE BANKED", $00
+
+
+d_submenu:
+	; cat0 = "game"
+/
+	byt MDIR_FLAG_FIRST
+	adr d_submenu_game
+	byt -$60, "GAME", $00
+	byt [- + MDIR_CAT_LENGTH - *]$ff
+
+	; cat1 = "config"
+/
+	byt MDIR_FLAG_SECOND
+	adr d_submenu_config
+	byt -$60, "GAME CONFIG", $00
+	byt [- + MDIR_CAT_LENGTH - *]$ff
+
+	; cat2 = "settings"
+/
+	byt 0
+	adr d_submenu_settings
+;	byt -$60, "SETTINGS", $00
+	byt -$60, $1e, "SYSTEM"
+	byt -$60, $1f, "SETTINGS", $00
+	byt [- + MDIR_CAT_LENGTH - *]$ff
+
+	; cat3 = "flash"
+/
+	byt MDIR_FLAG_SECLAST
+	adr d_submenu_flash
+	byt -$60, $1e, "STORAGE"
+	byt -$60, $1f, "HISCORE / DATA", $00
+	byt [- + MDIR_CAT_LENGTH - *]$ff
+
+	; cat4 = "credits"
+/
+	byt MDIR_FLAG_LAST
+	adr d_submenu_credits
+	byt -$60, "CREDITS", $00
+;	byt [- + MDIR_CAT_LENGTH - *]$ff ; not needed since this is the last one
+
+
+v_dst set v_reloc_submenu
+v_cat_len set 0
+v_cat_pos set 0
+
+CAT macro length, label
+	if v_cat_pos <> v_cat_len
+		error "CAT length mismatch"
+	endif
+v_cat_len set length
+v_cat_pos set 0
+	if length > 0
+d_submenu_label = v_dst
+	endif
+	endm
+
+ENT macro bank, dx, name, offs, label
+	if v_cat_pos = v_cat_len
+		error "CAT length mismatch"
+	endif
+v_flags set 0
+	if v_cat_pos = 0
+v_flags set v_flags | MDIR_FLAG_FIRST
+	endif
+	if v_cat_pos = 1
+v_flags set v_flags | MDIR_FLAG_SECOND
+	endif
+	if v_cat_pos = v_cat_len-1
+v_flags set v_flags | MDIR_FLAG_LAST
+	endif
+	if v_cat_pos = v_cat_len-2
+v_flags set v_flags | MDIR_FLAG_SECLAST
+	endif
+	if offs >= 0
+d_submenu_label = v_dst + 3 + offs
+	endif
+	byt v_flags, bank << 1, dx, name, $00
+v_dst set v_dst + MDIR_ENT_LENGTH
+v_cat_pos set v_cat_pos+1
+	endm
+
+d_entries_start:
+	CAT 6, game
+	ENT  0, -$60, "", 0, game_name
+	ENT  0, -$60, "SIZE: -----K", 6, game_size
+	ENT  0, -$60, "TYPE: ", 6, game_type
+	ENT  0, -$60, "SCORE: -----", 7, game_score
+	ENT  0, -$60, "DATA: ----- BYTES", 6, game_data
+	ENT  0, -$60, "ID: ------------...", 4, game_gameid
+
+	CAT 11, config
+	ENT  1, -$60, "SET GAME AS DEFAULT", -1, undef
+	ENT  0, -$60, "HISCORE:", -1, undef
+	ENT  4, -$40, "aENABLE STORING", 0, config_en_score
+	ENT  5, -$40, "aDISABLE STORING", 0, config_dis_score
+	ENT  2, -$40, "DELETE HISCORE", -1, undef
+	ENT  0, -$60, "STARTUP:", -1, undef
+	ENT  6, -$40, "aDEFAULT", 0, config_startup
+	ENT  7, -$40, "aSLOW", -1, undef
+	ENT  8, -$40, "aFAST", -1, undef
+	ENT  9, -$40, "aINSTANT", -1, undef
+	ENT  3, -$60, "DELETE GAME DATA", -1, undef
+
+	CAT 9, settings
+	ENT  0, -$60, "VERSION:", -1, undef
+	ENT  0, -$40, "-----", 0, system_version
+	ENT  0, -$60, "STARTUP:", 0, settings_startup
+	ENT 10, -$40, "aSLOW", -1, undef
+	ENT 11, -$40, "aFAST", -1, undef
+	ENT 12, -$40, "aINSTANT", -1, undef
+	ENT  0, -$60, "DISPLAY:", 0, settings_display
+	ENT 14, -$40, "a5 LINES", -1, undef
+	ENT 15, -$40, "a3 LINES", -1, undef
+
+	CAT 5, flash
+	ENT 13, -$60, "STATUS: ", 8, flash_status
+	ENT  0, -$60, "VERSION: -----", 9, flash_version
+	ENT  0, -$60, "FREE: ----- BYTES", 6, flash_free
+	ENT  0, -$60, "USED: ----- BYTES", 6, flash_used
+	ENT  0, -$60, "DELETED: ----- BYTES", 9, flash_deleted
+
+	CAT 10, credits
+	ENT  0, -$60, "MUCAREX", -1, undef
+	ENT  0, -$40, "BY P1X3L.NET", -1, undef
+	ENT  0, -$60, "CONCEPT:", -1, undef
+	ENT  0, -$40, "RETROFAN & ALeX", -1, undef
+	ENT  0, -$60, "LAYOUT:", -1, undef
+	ENT  0, -$40, "HENNING", -1, undef
+	ENT  0, -$60, "PROGRAMMING:", -1, undef
+	ENT  0, -$40, "ALeX", -1, undef
+	ENT  0, -$60, "DESIGN:", -1, undef
+	ENT  0, -$40, "RETROFAN", -1, undef
+
+	CAT 0, undef
+d_entries_end:
+
+	assume dpr:nothing
+
+	endsection

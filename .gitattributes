@@ -1,0 +1,5 @@
+Vectrex/*.inc linguist-language=Assembly
+Vectrex/*.lib linguist-language=Assembly
+*.h           linguist-language=C
+Makefile      linguist-language=Makefile
+*.pro         linguist-vendored

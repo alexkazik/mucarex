@@ -104,7 +104,7 @@ v_reloc_submenu = $b000 ; part of the mds-data space ($a000-$afff is used for la
 	bra start ; skip this section
 	byt MDIR_ID ; identification
 d_version:
-	adr 42  ; software version
+	adr 43  ; software version
 	adr t_font
 	adr d_dir
 
@@ -130,9 +130,10 @@ start:
 	ldx # $0000
 	stx v_ptr_ent
 
-	; irq code
-	lda # $7e ; "jmp extened"
+	; irq/nmi code
+	ldab $7e, $3e ; a = opcode jmp extended, b = opcode reset
 	sta $cbf8
+	stb $cbfb
 	ldx # irq_code_start
 	ldu # v_irq_code
 	stu $cbf9
@@ -345,18 +346,18 @@ is_sram:
 	; activate bank + swap to ram bank 0
 	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_ID | MCR_SET_MASTER
 
-	ldx # $0000
+	ldu # $0000
 /
-	ldu # $8000
+	ldx # $8000
 /
-	ldd , x++
-	std , u++
-	cmpu # $c000
+	ldd , u++
+	std , x++
+	cmpx # $c000
 	bne -
 	; finished 16k -> swap to ram bank 1
 	sta MUCAREX_SET | MCR_SET_MODE2_32K | MCR_SET_RAM_BANK1 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_ID | MCR_SET_MASTER
 	; restart if it was the first half
-	cmpx # $8000
+	cmpu # $8000
 	bne --
 
 	; activate ram mode

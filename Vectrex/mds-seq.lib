@@ -40,7 +40,7 @@ MDS_TYPE_MASK = $e0
 MDS_SIZE_MASK = $1f
 MDS_MAX_DATA_SIZE = $1fff
 
-MDS_SEQ_VERSION = 20
+MDS_SEQ_VERSION = 21
 
 	;
 	; mucarex data storage header
@@ -139,13 +139,13 @@ check_entry:
 	cmpa v_search_type
 	bne find_skip_entry ; type mismatch -> skip
 	; is a valid entry - check game id
-	ldb # 17
+	ldb # 2+16-1
 /
 	lda b, x
 	cmpa b, y
 	bne find_skip_entry ; game id mismatch -> skip it
 	decb
-	cmpb # 1
+	cmpb # 2-1
 	bne -
 
 	; found a valid entry with correct game id
@@ -231,32 +231,6 @@ v_deleted_space:
 	; INIT
 	;
 
-	; init-code, DP is not set!
-	assume dpr:nothing
-
-	phase * - MDS_ADDR_HEAD
-
-	; !! will be called while located in rom, any DPR
-
-init_in_rom:
-	; setup DPR+Y
-	pshs dp, y
-	Set_DPR_kill_B MDS_DPR
-
-	; copy ourself to ram
-	ldx # $0000
-	ldu # MDS_ADDR_HEAD
-/
-	ldd , x++
-	std , u++
-	cmpx # end_code
-	blo -
-
-	; !! jump into ram
-	jmp init
-
-	dephase
-
 init:
 	; no reorg needed (yet)
 	clr v_check_reorg
@@ -286,6 +260,32 @@ exit1:
 	sta MUCAREX_SET | MCR_SET_MODE0_BOOTUP | MCR_SET_RAM_BANK0 | MCR_SET_LED_OFF | MCR_SET_DO_PAGE_ON | MCR_SET_MASTER
 	puls dp, y, pc
 
+
+	; init-code, DP is not set!
+	assume dpr:nothing
+
+	phase * - MDS_ADDR_HEAD
+
+	; !! will be called while located in rom, any DPR
+
+init_in_rom:
+	; setup DPR+Y
+	pshs dp, y
+	Set_DPR_kill_B MDS_DPR
+
+	; copy ourself to ram
+	ldx # $0000
+	ldu # MDS_ADDR_HEAD
+/
+	ldd , x++
+	std , u++
+	cmpx # end_code
+	blo -
+
+	; !! jump into ram
+	jmp init
+
+	dephase
 
 
 	;
@@ -348,7 +348,7 @@ end_mem:
 store:
 	; IN:
 	;   B = type
-	;   X (on stack) = length
+	;   X (stored) = length
 	;   Y = ptr to gameid-2
 	;   U = address
 	; OUT:
@@ -457,7 +457,7 @@ exit2:
 load:
 	; IN:
 	;   B = type
-	;   X (on stack) = max. length
+	;   X (stored) = max. length
 	;   Y = ptr to gameid-2
 	;   U = address
 	; OUT:

@@ -63,17 +63,17 @@ architecture Behavioral of MuCaREX is
 
 	signal sig_bank : STD_LOGIC_VECTOR (19 downto 12) := "00000000";
 	signal sig_page : STD_LOGIC_VECTOR (19 downto 15);
-	
+
 	signal sig_ram_bank : STD_LOGIC ;
 	signal sig_do_page : STD_LOGIC ;
-	
+
 	signal sig_reset_detect : STD_LOGIC_VECTOR (4 downto 0) := "00000";
-	
+
 	signal sig_temp_bank : STD_LOGIC_VECTOR (19 downto 12);
-	
+
 	signal sig_data_valid : STD_LOGIC := '0';
 	signal sig_data_output : STD_LOGIC;
-	
+
 	signal sig_led : STD_LOGIC := '1';
 
 	signal sig_ram_mode : boolean;
@@ -87,22 +87,22 @@ begin
 		(i_vec_addr(15)='0' and sig_ram_mode) or
 		(i_vec_addr(15 downto 14)="10" and (not sig_ram_mode))
 		else '1';
-	
+
 	o_ram_addr(14) <= i_vec_addr(14) when i_vec_addr(15)='0' else sig_ram_bank;
-	
+
 	sig_vpage <= "0000" & i_vec_pb6 when sig_mode(0)='1' else sig_page;
-	
+
 	sig_temp_bank(19 downto 12) <= STD_LOGIC_VECTOR( unsigned(sig_bank) + unsigned(sig_vpage(19 downto 15) & i_vec_addr(14 downto 12)) ) when
 		sig_mode(1)='1'
 		else "00000" & i_vec_addr(14 downto 12);
-	
+
 	o_n_rom_cs1 <= i_n_vec_e when
 		sig_temp_bank(19)='0' and i_vec_addr(15)='0' and (i_vec_rw='1' or sig_master='1') and (not sig_ram_mode)
 		else '1';
 	o_n_rom_cs2 <= i_n_vec_e when
 		sig_temp_bank(19)='1' and i_vec_addr(15)='0' and (i_vec_rw='1' or sig_master='1') and (not sig_ram_mode)
 		else '1';
-	
+
 	o_rom_addr(18 downto 12) <= sig_temp_bank(18 downto 12);
 
 	io_vec_data(7) <= sig_data_output when sig_data_valid='1' and i_n_vec_e='0' else 'Z';
@@ -118,7 +118,7 @@ begin
 			--
 			-- register access
 			--
-			
+
 			sig_data_valid <= '0';
 
 			case i_vec_addr(3 downto 0) is
@@ -140,7 +140,7 @@ begin
 			when x"f" => sig_data_output <= sig_bank(19);
 			when others => null;
 			end case;
-			
+
 			if i_vec_addr(15 downto 10) = "110000" then -- $C0..$C3
 				if i_vec_addr(9 downto 5) = "00000" and sig_do_page='1' then
 					-- $c000-$c01f, any access: set PAGE to addr & 0x001f
@@ -169,7 +169,7 @@ begin
 					sig_bank <= i_vec_addr(7 downto 0);
 				end if;
 			end if;
-			
+
 			--
 			-- detect reset
 			--
@@ -178,7 +178,7 @@ begin
 
 				-- detect a reset by simply reading the reset vector
 				-- note: this can by "emulated" by e.g. "ldd $fffe"
-				
+
 				if i_vec_rw = '1' and i_vec_addr(15 downto 1) = "111111111111111" then -- $fffe/$ffff (reset vector)
 					if i_vec_addr(0) = '0' then
 						-- reading $fffe: remeber it
@@ -208,7 +208,7 @@ begin
 				--   f002 (read 1st instr.; 1st arg byte)
 				--     if it's here than we're sure to have a reset/jmp [fffe]
 				--   f003 (read 1st instr.; 2nd arg byte)
-			
+
 				if i_vec_addr = x"fffe" then
 					sig_reset_detect <= "00001";
 				elsif i_vec_addr = x"ffff" and sig_reset_detect(0) = '1' then

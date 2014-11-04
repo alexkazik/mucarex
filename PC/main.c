@@ -92,7 +92,6 @@ int main(int argc, char **argv){
 	char *in_lorom = NULL;
 	char *in_hirom = NULL;
 	char *in_directory = NULL;
-	char *in_easyflash = NULL;
 	
 	char *out_binary = NULL;
 	char *out_lorom = NULL;
@@ -220,17 +219,11 @@ int main(int argc, char **argv){
 	
 	struct launcher_data data;
 	struct dir_category *root;
-	const char *err;
 	
 	// load the default launcher (will be overwritten in some cases)
 	extract_launcher(launcher_bin, launcher_bin_len, &data);
 	
 	uint16_t builtin_launcher_version = data.version;
-	
-	if(err != NULL){
-		fprintf(stderr, "Error: %s\n", err);
-		exit(1);
-	}
 	
 	// load the input
 	if(in_binary){

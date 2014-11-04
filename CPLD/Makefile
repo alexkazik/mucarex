@@ -5,7 +5,7 @@
 
 here 		:= $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 synth_dir 	:= $(here)/synth
-src_dir		:= $(here)/src
+src_dir		:= $(here)/Board-V1.0
 vhdlprj		:= mucarex
 
 # this file list is for dependencies only, keep in sync with $(src_dir)/$(vhdlprj).prj

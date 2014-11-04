@@ -1,7 +1,7 @@
 set -tmpdir synth/xst/tmp
 set -xsthdpdir synth/xst
 run
--ifn src/mucarex.prj
+-ifn Board-V1.0/mucarex.prj
 -ifmt vhdl
 -ofn synth/mucarex.ngc
 -ofmt NGC

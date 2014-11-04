@@ -3,7 +3,7 @@ CC = gcc
 LD = gcc
 XXD = xxd
 
-CFLAGS = -MD
+CFLAGS = -MD -Wall -g -O3 -Werror
 LDFLAGS = 
 
 DEPDIR = .deps
@@ -13,7 +13,7 @@ SRCS = main.c launcher.c launcher_bin.c directory.c mdir.c binary.c md5.c
 OBJS = $(SRCS:.c=.o)
 
 
-all: vectrexpack
+all: mucarexpack
 
 %.o: %.c | $(DEPDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -25,11 +25,11 @@ all: vectrexpack
 launcher_bin.c: launcher.bin
 	$(XXD) -i $< $@
 
-vectrexpack: $(OBJS)
+mucarexpack: $(OBJS)
 	$(LD) -o $@ $^ $(LDFLAGS)
 
 clean:
-	@rm $(OBJS) launcher_bin.c vectrexpack $(DEPDIR)/*.P 2>/dev/null ; true
+	@rm $(OBJS) launcher_bin.c mucarexpack $(DEPDIR)/*.P 2>/dev/null ; true
 	@rmdir $(DEPDIR) 2>/dev/null ; true
 
 $(DEPDIR):

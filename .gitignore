@@ -8,7 +8,7 @@ PC/*.o
 PC/.deps
 PC/launcher.bin
 PC/launcher_bin.c
-PC/vectrexpack
+PC/mucarexpack
 Vectrex/*.bin
 Vectrex/*.lst
 Vectrex/*.p
